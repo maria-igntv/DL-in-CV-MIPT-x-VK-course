@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  triton:
+    build: .
+    ports:
+      - "8000:8000"   # HTTP
+      - "8001:8001"   # gRPC
+      - "8002:8002"   # Metrics
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sdk:
+    image: nvcr.io/nvidia/tritonserver:24.01-py3-sdk
+    network_mode: host
+    depends_on:
+      triton:
+        condition: service_healthy
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true

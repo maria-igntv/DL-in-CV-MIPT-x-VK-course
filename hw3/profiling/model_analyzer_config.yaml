@@ -1,0 +1,19 @@
+# Model Analyzer configuration for image_enhancer model
+
+profile_models:
+  image_enhancer:
+    parameters:
+      max_batch_size: [1, 4, 8]
+      instance_group:
+        count: [1, 2]
+
+triton_launch_mode: local
+
+perf_analyzer_flags:
+  concurrency-range: "1:8:1"
+  measurement-interval: 3000
+
+output_dir: model_analyzer_output
+filename_override: true
+
+checkpoint_directory: model_analyzer_checkpoints
