@@ -1,0 +1,22 @@
+services:
+  triton:
+    build: .
+    ports:
+      - "8000:8000"   # HTTP
+      - "8001:8001"   # gRPC
+      - "8002:8002"   # Metrics
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Same Compose network as `triton` (required on Docker Desktop for Mac — `network_mode: host` is Linux-only).
+  sdk:
+    image: nvcr.io/nvidia/tritonserver:24.12-py3-sdk
+    depends_on:
+      triton:
+        condition: service_healthy
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true

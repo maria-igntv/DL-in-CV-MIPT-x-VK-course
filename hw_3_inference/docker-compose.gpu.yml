@@ -1,0 +1,11 @@
+# Linux + NVIDIA GPU: merge with base compose:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
+services:
+  triton:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
