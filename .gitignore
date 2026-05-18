@@ -1,0 +1,41 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Wheels and packages
+*.whl
+offline_wheels/
+
+# Model weights and data
+*.pth
+*.onnx
+*.onnx.data
+
+# Images and results (unless specifically needed)
+*.jpg
+*.jpeg
+*.png
+!img.png
+!README-images/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Jupyter
+*.ipynb_checkpoints/
+
+# Temporary files
+enhanced*.jpg
+out_*.jpg
+via_proxy.jpg
+test_photo.jpg
+perf_results.txt
