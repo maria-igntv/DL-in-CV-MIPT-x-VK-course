@@ -1,160 +1,213 @@
-# Итоговый проект: Интеллектуальная система улучшения изображений
+# Интеллектуальная система улучшения изображений
 
-Система автоматического улучшения фотографий (яркость, контраст, цветовой баланс, насыщенность) на основе MIT-Adobe FiveK датасета (Expert C). Сравниваются image-adaptive 3D LUT (~68K параметров) и U-Net с MobileNetV2 (~2.3M параметров).
+## Описание проекта
 
-## Структура проекта
+**Задача:** supervised image-to-image преобразование. На вход — RAW-фото, на выход — улучшенное фото в стиле профессионального ретушера (эксперт C).
 
-```
-hw_3_inference/
-├── model/
-│   ├── dataset.py            # FiveKDataset с аугментациями
-│   ├── utils.py              # device, seeds, метрики, loss, classical methods
-│   ├── lut_model.py          # Learnable3DLUT (~68K параметров)
-│   ├── unet_model.py         # U-Net с MobileNetV2 (~2.3M параметров)
-│   ├── train.py              # Обучение 3D LUT
-│   ├── train_unet.py         # Обучение U-Net
-│   ├── evaluate.py           # Единая оценка всех моделей
-│   ├── analyze_errors.py     # Анализ ошибок по категориям
-│   └── export_onnx.py        # Экспорт в ONNX для Triton
-├── clients/                  # HTTP/gRPC клиенты для Triton
-├── triton/model_repository/  # Конфигурация Triton Inference Server
-├── profiling/                # Нагрузочное тестирование
-├── scripts/
-│   └── inline_onnx_weights.py
-├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.gpu.yml
-└── README.md
+**Датасет:** [MIT-Adobe FiveK](https://data.csail.mit.edu/graphics/fivek/) — 5000 RAW-изображений + 5 экспертных ретушей.
+
+**Ключевое требование:** инференс < 500 мс, модель лёгкая для массового применения.
+
+**Основная модель:** Image-adaptive 3D LUT (~68K параметров, инференс ~20 мс на CPU).
+
+**Альтернативная модель:** U-Net с MobileNetV2 энкодером (~2.87M параметров, инференс ~246 мс на CPU).
+
+**Продакшн-развертывание:** Triton Inference Server (ONNX Runtime) с динамическим батчингом, HTTP/gRPC API, кастомными метриками Prometheus.
+
+
+## Требования
+
+- Python 3.10+
+- PyTorch 2.0+
+- OpenCV, NumPy, scikit-image, lpips, pandas, matplotlib
+- Docker + Docker Compose (для Triton)
+- Датасет MIT-Adobe FiveK (~8 GB)
+
+Установка зависимостей:
+
+```bash
+# Для обучения и оценки
+pip install -r hw_3_inference/requirements-train.txt
+
+# Для клиентов Triton
+pip install -r hw_3_inference/requirements-client.txt
+
+# Полный набор
+pip install -r hw_3_inference/requirements.txt
 ```
 
 ## Быстрый старт
 
-### 1. Установка зависимостей
+Минимальный путь от данных до работающего сервиса:
 
 ```bash
 cd hw_3_inference
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-train.txt
-```
 
-### 2. Загрузка датасета
+# 1. Обучение 3D LUT
+python model/train.py --data-root /path/to/adobe-fivek --epochs 40 --loss combined
 
-```bash
-# Датасет MIT-Adobe FiveK с Kaggle
-python -c "import kagglehub; kagglehub.dataset_download('weipengzhang/adobe-fivek')"
-# Путь: ~/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1
-```
+# 2. Оценка
+python model/evaluate.py --data-root /path/to/adobe-fivek --all
 
-### 3. Обучение моделей
+# 3. Экспорт в ONNX
+python model/export_onnx.py --checkpoint model/checkpoints/best_lut_improved.pth
 
-```bash
-cd model
+# 4. Запуск Triton
+docker compose up --build
 
-# 3D LUT (основная модель) — ~12 часов на CPU, ~8 часов на MPS
-python train.py --data-root ~/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1 \
-  --loss combined --epochs 100 --batch-size 8
-
-# U-Net MobileNetV2 (для сравнения) — ~50 мин на CPU, ~30 мин на MPS
-python train_unet.py --data-root ~/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1 \
-  --epochs 30 --batch-size 4
-```
-
-Чекпойнты сохраняются в:
-- `checkpoints/best_lut_improved.pth` (3D LUT, combined loss)
-- `checkpoints_unet/best_unet.pth` (U-Net)
-- `checkpoints/hparams.json` и `checkpoints_unet/hparams.json` (гиперпараметры)
-
-### 4. Оценка всех моделей
-
-```bash
-cd model
-python evaluate.py --data-root ~/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1 --all
-```
-
-Результаты сохраняются в `evaluation_results.json`.
-
-### 5. Анализ ошибок
-
-```bash
-cd model
-python analyze_errors.py \
-  --data-root ~/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1 \
-  --checkpoint checkpoints/best_lut_improved.pth
-```
-
-Результаты: `error_analysis_summary.csv`, `error_analysis_per_image.csv`, `error_analysis/best_worst/`.
-
-### 6. Итоговый ноутбук
-
-Открыть `../final_project/final_project_notebook.ipynb` — загружает результаты оценки и строит таблицы/графики.
-
-## Требования
-
-- **Python:** 3.13
-- **PyTorch:** 2.11.0
-- **torchvision:** 0.26.0
-- **Операционная система:** macOS (CPU/MPS) или Linux (CPU/CUDA)
-- **Docker:** для Triton Inference Server (опционально)
-
-Проверка версий:
-```bash
-python --version    # Python 3.13.x
-python -c "import torch; print(torch.__version__)"  # 2.11.0
-python -c "import torchvision; print(torchvision.__version__)"  # 0.26.0
-```
-
-## Развертывание через Triton Inference Server
-
-```bash
-# Экспорт модели в ONNX
-cd model
-python export_onnx.py --checkpoint checkpoints/best_lut_improved.pth \
-  --out ../triton/model_repository/image_enhancer/1/model.onnx
-
-# Запуск Triton
-cd ..
-docker compose build --no-cache
-docker compose up -d
-
-# Проверка
-curl http://localhost:8000/v2/health/ready
+# 5. Тестирование (в другом терминале)
 python clients/client_http.py --image test_photo.jpg --output enhanced.jpg
 ```
 
-## Кастомные метрики Triton
+## Пошаговая инструкция
 
-Прокси-модель `metrics_proxy` добавляет 2 метрики:
-- `image_enhancer_processing_time_seconds` (COUNTER)
-- `image_enhancer_current_requests` (GAUGE)
+### 1. Подготовка данных
 
-Эндпоинт Prometheus: `http://localhost:8002/metrics`
-
-## Нагрузочное тестирование
+Скачайте датасет MIT-Adobe FiveK. Рекомендуется версия с Kaggle:
 
 ```bash
-# Через Docker SDK контейнер
-docker compose run --rm sdk bash -lc \
-  'perf_analyzer -m image_enhancer -u triton:8001 --concurrency-range 1:4:1'
-
-# Или с хоста
-cd profiling && URL=localhost:8001 bash run_perf_analyzer.sh
+pip install kagglehub
+python -c "import kagglehub; kagglehub.dataset_download('weipengzhang/adobe-fivek')"
 ```
+
+
+### 2. Обучение модели 3D LUT
+
+```bash
+cd hw_3_inference/model
+
+# Основной вариант (combined loss: L1 + 0.1*LPIPS)
+python train.py \
+  --data-root /path/to/adobe-fivek \
+  --epochs 40 \
+  --batch-size 8 \
+  --loss combined \
+  --lr 1e-3 \
+  --augment \
+  --seed 42
+```
+
+Результаты сохраняются в `checkpoints/`:
+- `best_lut_improved.pth` — лучшая модель
+- `history.json` — кривые обучения
+- `hparams.json` — гиперпараметры
+
+**Параметры модели:**
+- LUT-размер: 17³
+- Количество LUT: 3
+- Параметры CNN: 3→16→32→64 каналов
+- Общее число параметров: ~68K
+
+**Примечание:** на macOS с MPS обучение принудительно выполняется на CPU, так как MPS не поддерживает `grid_sampler_3d_backward`, необходимый для 3D LUT.
+
+### 3. Обучение U-Net (опционально)
+
+```bash
+cd hw_3_inference/model
+
+python train_unet.py \
+  --data-root /path/to/adobe-fivek \
+  --epochs 30 \
+  --batch-size 4 \
+  --loss combined \
+  --freeze-encoder-epochs 10
+```
+
+Результаты в `checkpoints_unet/`:
+- `best_unet.pth` — лучшая модель
+- Progressive unfreezing: первые 10 эпох энкодер заморожен, затем разморозка с lr×0.1.
+
+### 4. Оценка качества
+
+Унифицированный скрипт оценивает все модели на одной тестовой выборке (последние 10% датасета):
+
+```bash
+cd hw_3_inference/model
+
+# Оценить всё (RAW, классика, 3D LUT, U-Net)
+python evaluate.py --data-root /path/to/adobe-fivek --all
+
+# Только 3D LUT
+python evaluate.py --data-root /path/to/adobe-fivek --lut-checkpoint checkpoints/best_lut_improved.pth
+```
+
+Результат: `evaluation_results.json` с метриками SSIM, PSNR, LPIPS, latency, FPS для каждой модели.
+
+### 5. Анализ ошибок
+
+Классификация ошибок по категориям контента изображения:
+
+```bash
+cd hw_3_inference/model
+
+# Для 3D LUT
+python analyze_errors.py \
+  --data-root /path/to/adobe-fivek \
+  --checkpoint checkpoints/best_lut_improved.pth \
+  --model-type lut
+
+# Для U-Net
+python analyze_errors.py \
+  --data-root /path/to/adobe-fivek \
+  --checkpoint checkpoints_unet/best_unet.pth \
+  --model-type unet
+```
+
+Результаты в `error_analysis/`:
+- `error_analysis_summary.csv` — средние метрики по категориям
+- `error_analysis_per_image.csv` — метрики для каждого изображения
+- `best_worst/` — визуальные примеры (склейка RAW | Expert | Prediction)
+
+**Категории анализа:**
+- **Brightness:** night / twilight / day / overexposed
+- **Color temp:** natural / warm_artificial / cool_artificial
+- **Saturation:** low / medium / high
+
+
+## Архитектура
+
+### 3D LUT (основная модель)
+
+**Принцип:** LUT-таблицы инициализированы близко к тождественному отображению. CNN предсказывает, как смешать 3 базовые LUT для каждого конкретного изображения. Trilinear interpolation гарантирует, что геометрия изображения не изменится — меняются только цвета пикселей.
+
+### U-Net (альтернативная модель)
+
+- **Encoder:** MobileNetV2 (pretrained on ImageNet), 5 уровней понижения разрешения
+- **Decoder:** 5 уровней повышения с skip connections
+- **Bottleneck:** Conv 1×1 (1280→256)
+- **Выход:** Sigmoid → [0, 1]
+- **Параметры:** ~2.87M
+
+## Результаты
+
+Тестовая выборка: 500 изображений (последние 10% датасета).
+
+| Метод | SSIM | PSNR (дБ) | LPIPS | Параметры | Latency (мс) | FPS |
+|-------|------|-----------|-------|-----------|--------------|-----|
+| RAW (без обработки) | 0.648 ± 0.136 | 18.79 ± 3.48 | — | 0 | 0 | — |
+| CLAHE | 0.546 ± 0.135 | 16.50 ± 2.54 | — | 0 | 0.8 | 1227 |
+| Auto Gamma | 0.513 ± 0.205 | 15.71 ± 4.00 | — | 0 | 0.2 | 4703 |
+| White Balance | 0.649 ± 0.136 | 19.03 ± 3.51 | — | 0 | 1.3 | 753 |
+| Pipeline (WB+CLAHE) | 0.578 ± 0.137 | 17.45 ± 2.81 | — | 0 | 2.1 | 464 |
+| **3D LUT (L1+LPIPS)** | **0.657 ± 0.140** | **19.81 ± 3.73** | **0.123 ± 0.066** | **67 996** | **19.2** | **52** |
+| U-Net (MobileNetV2) | 0.674 ± 0.123 | 20.53 ± 3.30 | 0.129 ± 0.061 | 2 870 075 | 246.1 | 4.1 |
+
+**Ключевые выводы:**
+- 3D LUT превосходит RAW baseline по SSIM (+0.009) и PSNR (+1.02 дБ).
+- Perceptual loss (LPIPS) критически важен: обучение только по L1 не даёт выигрыша над RAW.
+- 3D LUT — оптимальный компромисс: 97.5% качества U-Net при 7.8% времени инференса и 2.4% размера модели.
 
 ## Воспроизводимость
 
+Все гиперпараметры и настройки зафиксированы:
+
 - **Seed:** 42 (torch, numpy, random, PYTHONHASHSEED)
-- **Разбиение:** 80/10/10 (train/val/test, по алфавиту файлов)
-- **Размер изображений:** 512x512
-- **Аугментации:** horizontal flip (50%), brightness jitter (0.9-1.1), contrast jitter (0.9-1.1)
-- **Гиперпараметры** сохраняются в `hparams.json` рядом с чекпойнтом
+- **Разбиение:** 80/10/10 (train/val/test) по алфавитному порядку файлов
+- **Размер:** 512×512
+- **Аугментации:** horizontal flip (50%), brightness jitter [0.9, 1.1], contrast jitter [0.9, 1.1]
+- **Loss:** L1 + 0.1 × LPIPS
+- **Optimizer:** Adam (lr = 1e-3)
+- **Scheduler:** CosineAnnealingLR (T_max = 40)
+- **Epochs:** 40 (3D LUT), 30 (U-Net)
 
-## Результаты Triton (CPU, macOS)
-
-| Конкурентность | Avg Latency (ms) | P95 Latency (ms) | Throughput (inf/s) |
-|---|---|---|---|
-| 1 | 48.1 | 57.5 | 20.8 |
-| 4 | 710.3 | 4467.5 | 1.4 |
-| 8 | 318.8 | 482.6 | 3.1 |
-
-## Проверка работоспособности
-![img.png](img.png)
+Гиперпараметры сохранены в `checkpoints/hparams.json` и `checkpoints_unet/hparams.json`.
