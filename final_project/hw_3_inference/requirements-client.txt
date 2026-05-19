@@ -1,5 +1,0 @@
-# Client scripts + testing on Triton server
-tritonclient[all]==2.40.0
-opencv-python-headless
-numpy
-requests
