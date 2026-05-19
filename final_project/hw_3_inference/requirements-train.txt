@@ -1,0 +1,12 @@
+# Training + ONNX export (Colab / GPU server)
+torch>=2.0
+torchvision
+opencv-python-headless
+numpy
+onnx
+onnxruntime
+requests
+tqdm
+matplotlib
+scikit-image
+kagglehub

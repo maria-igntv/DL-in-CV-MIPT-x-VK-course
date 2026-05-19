@@ -1,0 +1,16 @@
+{
+  "data_root": "/Users/maria.ignatova/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1",
+  "expert": "c",
+  "size": 512,
+  "lut_dim": 17,
+  "n_luts": 3,
+  "epochs": 40,
+  "batch_size": 8,
+  "lr": 0.001,
+  "loss": "combined",
+  "augment": true,
+  "seed": 42,
+  "save_dir": "checkpoints",
+  "n_params": 67996,
+  "device": "cpu"
+}
