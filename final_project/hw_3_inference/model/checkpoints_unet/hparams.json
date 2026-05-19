@@ -1,0 +1,15 @@
+{
+  "data_root": "/Users/maria.ignatova/.cache/kagglehub/datasets/weipengzhang/adobe-fivek/versions/1",
+  "expert": "c",
+  "size": 512,
+  "epochs": 20,
+  "batch_size": 4,
+  "lr": 0.0001,
+  "loss": "combined",
+  "augment": true,
+  "freeze_encoder_epochs": 10,
+  "seed": 42,
+  "save_dir": "checkpoints_unet",
+  "n_params": 2870075,
+  "device": "mps"
+}
